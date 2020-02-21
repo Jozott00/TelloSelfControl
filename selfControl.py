@@ -8,21 +8,21 @@ import argparse
 parser = argparse.ArgumentParser(description='Source of Tello Drone Self Control')
 parser.add_argument('--face_cascade', help='Path fo face cascade',
                     default='data/haarcascades/haarcascade_frontalface_alt.xml')
-parser.add_argument('--camera', help='When drone not in use, alternative camera', type=int, default=int(0))
-parser.add_argument('--drone', help='Is drone in use? Change this if you want to use your webcam only. (default=true)',
+parser.add_argument('--camera', help='When drone not in use, alternative camera. (default: 0)', type=int, default=int(0))
+parser.add_argument('--drone', help='Is drone in use? Change this if you want to use your webcam only. (default: True)',
                     default=True)
-parser.add_argument('--fly_manual', help='Do you want to fly manual without automated controls? (default=false)',
+parser.add_argument('--fly_manual', help='Do you want to fly manual without automated controls? (default: False)',
                     default=False)
-parser.add_argument('--distance', help='Drone distance to targeting face or object (0-6), (default=3)', default=3,
+parser.add_argument('--distance', help='Drone distance to targeting face or object (0-6), (default: 3)', default=3,
                     type=int)
-parser.add_argument('--tx',
-                    help='Drone tolerance distance to targeting x-axis on face or object (0 - 200), (default=100)',
+parser.add_argument('--tx', '--tolerance_x',
+                    help='Drone tolerance distance to targeting x-axis on face or object (0 - 200), (default: 100)',
                     default=100, type=int)
-parser.add_argument('--ty',
-                    help='Drone tolerance distance to targeting y-axis on face or object (0 - 200), (default=100)',
+parser.add_argument('--ty', '--tolerance_y',
+                    help='Drone tolerance distance to targeting y-axis on face or object (0 - 200), (default: 100)',
                     default=100, type=int)
-parser.add_argument('--tz',
-                    help='Drone tolerance distance to targeting z-axis on face or object (0 - 200), (default=50)',
+parser.add_argument('--tz', '--tolerance_z',
+                    help='Drone tolerance distance to targeting z-axis on face or object (0 - 200), (default: 50)',
                     default=50, type=int)
 args = parser.parse_args()
 print('Setted Args: ', args)
