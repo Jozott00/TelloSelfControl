@@ -58,7 +58,10 @@ Do not use the OpenCV version `4.2.0.32`! This version has issues with the QT li
 
 ## Further improvments
 
-- I want to add position prediction for the X - axis to prevent that the drone loses the subject.
+- [x] I want to add position prediction for the X - axis to prevent that the drone loses the subject.
+- [ ] I want to add position prediction for the Y - axis and Z - axis to prevent that the drone loses the subject.
+- [ ] I want to add facial motion detection to send commands using motion
+- [ ] Send command by color recognition via webcam
 
 ## Credits
 

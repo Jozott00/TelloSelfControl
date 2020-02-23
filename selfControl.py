@@ -3,6 +3,7 @@ import numpy
 from djitellopy import Tello
 import cv2 as cv
 import argparse
+import math
 
 # parsearg. setup
 parser = argparse.ArgumentParser(description='Source of Tello Drone Self Control')
@@ -97,6 +98,7 @@ class TelloSelfControl(object):
         self.cap = None
         self.faces = None
         self.displayMsg = ''
+        self.drone_speed = (0, 0, 0, 0)
         self.vDistance = (0, 0, 0, 0)
         self.windowSize = None
         self.windowCenter = None
@@ -107,6 +109,13 @@ class TelloSelfControl(object):
         self.velocity_up_down = 0
         self.velocity_forward_backward = 0
         self.velocity_yaw = 0
+
+        self.nFace = (0, 0, 0, 0)
+        self.last_seen = (0, 0, 0, 0)
+        self.last_last_seen = (0, 0, 0, 0)
+        self.valid_lock = False
+        self.valid_lock_count = 0
+        self.is_face_lost = False
 
         self.imgCount = 0
 
@@ -181,6 +190,12 @@ class TelloSelfControl(object):
             # show frame in window
             self.display(frame)
 
+
+            if self.nFace is not self.last_seen:
+                self.last_last_seen = self.last_seen
+
+            self.last_seen = self.nFace
+
             # Exit key esc
             key = cv.waitKey(10)
             if key == 27:
@@ -208,6 +223,8 @@ class TelloSelfControl(object):
 
     # frame visualsation
     def display(self, frame):
+        self.drone_speed = (self.velocity_yaw, self.velocity_up_down, self.velocity_forward_backward)
+
         if not None:
             for (x, y, w, h) in self.faces:
                 frame = cv.circle(frame, (x + w // 2, y + h // 2), 10, (78, 214, 99), 2)  # center face
@@ -218,6 +235,8 @@ class TelloSelfControl(object):
         frame = cv.putText(frame, self.displayMsg, LEFT3, FONT, FONTSCALE, FONTCOLOR, LINETYPE)  # data message
         frame = cv.putText(frame, str(self.vDistance), TOPLEFT, FONT, FONTSCALE, FONTCOLOR,
                            LINETYPE)  # distance vektor to center
+        frame = cv.putText(frame, str(self.drone_speed), (10, 100), FONT, FONTSCALE, FONTCOLOR,
+                           LINETYPE)  # speed send to drone
         frame = cv.circle(frame, self.windowCenter, 10, (225, 15, 47), 2)  # center window
         frame = cv.rectangle(frame, (self.windowCenter[0] - TARGET_SIZE // 2, self.windowCenter[1] - TARGET_SIZE // 2),
                              (self.windowCenter[0] + TARGET_SIZE // 2, self.windowCenter[1] + TARGET_SIZE // 2),
@@ -225,53 +244,134 @@ class TelloSelfControl(object):
         frame = cv.rectangle(frame, (self.windowCenter[0] - tx // 2, self.windowCenter[1] - ty // 2),
                              (self.windowCenter[0] + tx // 2, self.windowCenter[1] + ty // 2),
                              (255, 191, 0), 2)  # tolerance area
+        (x, y, w, h) = self.last_last_seen
+        frame = cv.rectangle(frame, (x, y),
+                             (x + w, y + h),
+                             (255, 0, 238), 2)  # last last seen face position
+        (x, y, w, h) = self.last_seen
+        frame = cv.rectangle(frame, (x, y),
+                             (x + w, y + h),
+                             (255, 191, 0), 2)  # last last seen face position
+
 
         cv.imshow('Tracker', frame)
 
     # drone autocontrol
     def auto_control(self):
         if isinstance(self.faces, tuple):
+            self.face_lost()
             return
 
-        # most significant face
-        nFace = (0, 0, 0, 0)
+        # we validate which face has the highest chance to be the same face as the last seen face the valid_value
+        # describes the diffrence between detected and last seen face. the face with the lowest valid_value will be
+        # selected
+        valid_value = math.inf
+        self.nFace  = (0, 0, 0, 0)
         for face in self.faces:
-            if face[3] > nFace[3]:
-                nFace = face
+            vD = self.get_dist_vector(face)
+            value = abs(vD[0]) + abs(vD[1]) + abs(vD[2])
+            if value < valid_value:
+                self.nFace  = face
+                valid_value = value
 
-        (x, y, w, h) = nFace
+        self.displayMsg += str(valid_value) + ' / '
+        (x, y, w, h) = self.nFace
+
+        # if the last face isnt locked, we need to check the counter
+        if not self.valid_lock:
+            self.valid_lock_fnc(valid_value)
+
+        # if the last face was locked and the detected valid_value has more than 200 difference to the last face,
+        # we need to clal face_lost()
+        if valid_value > 200 and self.valid_lock:
+            self.nFace = self.last_seen
+            self.face_lost()
+            print('-- Face lost', valid_value)
+            return
+
+        # if the face was lost last frame, the lock is open to prevent that something wrong gonna be tracked
+        if self.is_face_lost:
+            self.valid_lock_count = 0
+            self.valid_lock = False
+            self.is_face_lost = False
+
         self.objectCenter = (x + w // 2, y + h // 2)  # face center
 
         # calculate the distance vector from center of target to center of window(camera view)
         vCenter = numpy.array((self.windowCenter[0], self.windowCenter[1], TARGET_SIZE))
-        vTarget = numpy.array((self.objectCenter[0], self.objectCenter[1], nFace[3]))
+        vTarget = numpy.array((self.objectCenter[0], self.objectCenter[1], self.nFace[3]))
         self.vDistance = vCenter - vTarget
+
+        # set the right speed for the distance
+        sX=sY=sZ= SPEED
+        if abs(self.vDistance[0]) < tx:
+            sX = sX//2
+        if abs(self.vDistance[1]) < ty:
+            sY = sY // 2
+        if self.vDistance[2] > 2 * tz:
+            sZ = sZ // 2
 
         # set the movement of the drone by analysing the data. (tx, ty, tz are the tolerance distances. Within these
         # distances the drone stays still)
         # X - axis correction
-        if self.vDistance[0] + int(tx // 2) < 0:
-            self.velocity_yaw = SPEED
+        if self.vDistance[0] + tx // 2 < 0:
+            self.velocity_yaw = sX
             self.displayMsg += 'turn right /'
-        elif self.vDistance[0] - int(tx // 2) > 0:
-            self.velocity_yaw = -SPEED
+        elif self.vDistance[0] - tx // 2 > 0:
+            self.velocity_yaw = - sX
             self.displayMsg += 'turn left /'
 
         # Y - axis correction
-        if self.vDistance[1] + int(ty // 2) < 0:
-            self.velocity_up_down = - SPEED
+        if self.vDistance[1] + ty//2 < 0:
+            self.velocity_up_down = - sY
             self.displayMsg += 'move down /'
-        elif self.vDistance[1] - int(ty // 2) > 0:
-            self.velocity_up_down = SPEED
+        elif self.vDistance[1] - ty // 2 > 0:
+            self.velocity_up_down = sY
             self.displayMsg += 'move up /'
 
         # Z - axis correction
         if self.vDistance[2] < 0:
-            self.velocity_forward_backward = - SPEED
+            self.velocity_forward_backward = - sZ
             self.displayMsg += 'move backward /'
         elif self.vDistance[2] - tz > 0:
-            self.velocity_forward_backward = SPEED
+            self.velocity_forward_backward = sZ
             self.displayMsg += 'move forward /'
+
+
+    # last seen valuation
+    def get_dist_vector(self, face):
+        (x, y, w, h) = face
+        (lx, ly, lw, lh) = self.last_seen
+
+        v1 = numpy.array((x + w //2, y + h // 2, w)) # vector off detected face
+        v2 = numpy.array((lx + lw //2, ly + lh // 2, lw)) # vector off last valid face
+        return v1 - v2
+
+    # we need to handle the drone in case the face got lost
+    def face_lost(self):
+        self.is_face_lost = True
+        (x, y, w, h) = self.last_seen
+        (lx, ly, lw, lh) = self.last_last_seen
+        self.displayMsg = 'x: {}, y: {} / x: {}, y: {}'.format(x, y, lx, ly)
+        if x > lx:
+            self.velocity_yaw = SPEED
+        else:
+            self.velocity_yaw = - SPEED
+
+    # if a new face is detected and no other was got locked, we need to valid this face.
+    # For example we need to check that the detected face is just caused of a noise image quality.
+    # For this we confirm that the face was 10 frames in a row detected. if not so, an other face could get locked
+    def valid_lock_fnc(self, valid_value):
+        if valid_value < 200:
+            self.valid_lock_count += 1
+        else:
+            self.valid_lock_count = 0
+
+        print('-- valid lock count: ', self.valid_lock_count)
+
+        if self.valid_lock_count >= 10:
+            self.valid_lock = True
+            print('-- valid lock: TRUE')
 
     # override by key input
     def override_detection(self):
@@ -288,11 +388,12 @@ class TelloSelfControl(object):
             self.tello.land()
             self.frame_read.stop()
             self.is_flying = False
+            close()
         else:
             if key == ord('w'):
-                self.velocity_forward_backward = 2 * SPEED
+                self.velocity_forward_backward = SPEED
             if key == ord('s'):
-                self.velocity_forward_backward = -  2 * SPEED
+                self.velocity_forward_backward = - SPEED
             if key == ord('a'):
                 self.velocity_left_right = - SPEED
             if key == ord('d'):
@@ -302,9 +403,9 @@ class TelloSelfControl(object):
             if key == ord('h'):
                 self.velocity_up_down = -SPEED
             if key == ord('g'):
-                self.velocity_yaw = - SPEED
+                self.velocity_yaw = - 3 * SPEED
             if key == ord('j'):
-                self.velocity_yaw = SPEED
+                self.velocity_yaw = 3 * SPEED
 
     def status_update(self):
         print('Tello Battery: {}'.format(self.tello.get_battery()[:2]))
