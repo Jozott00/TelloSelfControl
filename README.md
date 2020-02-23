@@ -2,7 +2,7 @@
 
 Tello Self Control is a simple python application for controlling a DJI Tello that uses OpenCV to detect faces and have them tracked by the drone.    The program was tested with a DJI Tello and should also be compatible with a DJI Tello EDU.
 
-Test with Python 3.7, but should work with all Python3 versions.
+Tested with Python 3.7, but should work with all Python3 versions.
 
 ## Install
 You will need the contribution version of OpenCV. 
@@ -13,6 +13,9 @@ Do not use the OpenCV version `4.2.0.32`! This version has issues with the QT li
 
 ## Usage
 
+To use the script with drone just run `python selfControl.py`. If you want to run the script for development without drone run `python selfControl.py --drone false`.
+
+More settings:
 ```
    -h, --help            show this help message and exit
   --face_cascade FACE_CASCADE
